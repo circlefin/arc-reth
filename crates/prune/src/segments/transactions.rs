@@ -11,16 +11,18 @@ use tracing::{instrument, trace};
 #[non_exhaustive]
 pub(crate) struct Transactions;
 
-impl Segment for Transactions {
-    const SEGMENT: PruneSegment = PruneSegment::Transactions;
+impl<DB: Database> Segment<DB> for Transactions {
+    fn segment(&self) -> PruneSegment {
+        PruneSegment::Transactions
+    }
 
     #[instrument(level = "trace", target = "pruner", skip(self, provider), ret)]
-    fn prune<DB: Database>(
+    fn prune(
         &self,
         provider: &DatabaseProviderRW<'_, DB>,
         input: PruneInput,
     ) -> Result<PruneOutput, PrunerError> {
-        let tx_range = match input.get_next_tx_num_range_from_checkpoint(provider, Self::SEGMENT)? {
+        let tx_range = match input.get_next_tx_num_range(provider)? {
             Some(range) => range,
             None => {
                 trace!(target: "pruner", "No transactions to prune");
@@ -65,7 +67,7 @@ mod tests {
     };
     use reth_db::tables;
     use reth_interfaces::test_utils::{generators, generators::random_block_range};
-    use reth_primitives::{BlockNumber, PruneCheckpoint, PruneMode, TxNumber, B256};
+    use reth_primitives::{BlockNumber, PruneCheckpoint, PruneMode, PruneSegment, TxNumber, B256};
     use reth_provider::PruneCheckpointReader;
     use reth_stages::test_utils::TestTransaction;
     use std::ops::Sub;
@@ -84,12 +86,19 @@ mod tests {
 
         let test_prune = |to_block: BlockNumber, expected_result: (bool, usize)| {
             let prune_mode = PruneMode::Before(to_block);
-            let input = PruneInput { to_block, delete_limit: 10 };
+            let input = PruneInput {
+                previous_checkpoint: tx
+                    .inner()
+                    .get_prune_checkpoint(PruneSegment::Transactions)
+                    .unwrap(),
+                to_block,
+                delete_limit: 10,
+            };
             let segment = Transactions::default();
 
             let next_tx_number_to_prune = tx
                 .inner()
-                .get_prune_checkpoint(Transactions::SEGMENT)
+                .get_prune_checkpoint(PruneSegment::Transactions)
                 .unwrap()
                 .and_then(|checkpoint| checkpoint.tx_number)
                 .map(|tx_number| tx_number + 1)
@@ -138,7 +147,7 @@ mod tests {
                 transactions.len() - (last_pruned_tx_number + 1)
             );
             assert_eq!(
-                tx.inner().get_prune_checkpoint(Transactions::SEGMENT).unwrap(),
+                tx.inner().get_prune_checkpoint(PruneSegment::Transactions).unwrap(),
                 Some(PruneCheckpoint {
                     block_number: last_pruned_block_number,
                     tx_number: Some(last_pruned_tx_number as TxNumber),
