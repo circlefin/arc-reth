@@ -1,6 +1,4 @@
-//! Node types config.
-
-//! Ethereum node types
+//! Ethereum Node types config.
 
 use crate::{EthEngineTypes, EthEvmConfig};
 use reth_basic_payload_builder::{BasicPayloadJobGenerator, BasicPayloadJobGeneratorConfig};
