@@ -59,6 +59,9 @@ mod consistent_view;
 use alloy_rpc_types_engine::ForkchoiceState;
 pub use consistent_view::{ConsistentDbView, ConsistentViewError};
 
+mod blockchain_provider;
+pub use blockchain_provider::BlockchainProvider2;
+
 /// The main type for interacting with the blockchain.
 ///
 /// This type serves as the main entry point for interacting with the blockchain and provides data
