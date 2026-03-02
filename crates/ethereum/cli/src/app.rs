@@ -127,6 +127,9 @@ where
 
         self.init_tracing(&runner)?;
 
+        // Deprioritize background threads spawned by tracing/OTel libraries.
+        reth_tasks::utils::deprioritize_background_threads();
+
         // Install the prometheus recorder to be sure to record all metrics
         install_prometheus_recorder();
 
