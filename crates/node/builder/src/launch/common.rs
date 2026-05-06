@@ -53,7 +53,7 @@ use reth_fs_util as fs;
 use reth_network_p2p::headers::client::HeadersClient;
 use reth_node_api::{FullNodeTypes, NodeTypes, NodeTypesWithDB, NodeTypesWithDBAdapter};
 use reth_node_core::{
-    args::DefaultEraHost,
+    args::{DefaultEraHost, PruneConfigKind},
     dirs::{ChainPath, DataDirPath},
     node_config::NodeConfig,
     primitives::BlockHeader,
@@ -64,13 +64,14 @@ use reth_node_metrics::{
     hooks::Hooks,
     recorder::install_prometheus_recorder,
     server::{MetricServer, MetricServerConfig},
+    storage::StorageSettingsInfo,
     version::VersionInfo,
 };
 use reth_provider::{
     providers::{NodeTypesForProvider, ProviderNodeTypes, RocksDBProvider, StaticFileProvider},
     BlockHashReader, BlockNumReader, ProviderError, ProviderFactory, ProviderResult,
     RocksDBProviderFactory, StageCheckpointReader, StaticFileProviderBuilder,
-    StaticFileProviderFactory,
+    StaticFileProviderFactory, StorageSettingsCache,
 };
 use reth_prune::{PruneModes, PrunerBuilder};
 use reth_rpc_builder::config::RethRpcServerConfig;
@@ -622,18 +623,36 @@ where
     /// This launches the prometheus endpoint.
     ///
     /// Convenience function to [`Self::start_prometheus_endpoint`]
-    pub async fn with_prometheus_server(self) -> eyre::Result<Self> {
+    pub async fn with_prometheus_server(self) -> eyre::Result<Self>
+    where
+        T::ChainSpec: EthereumHardforks,
+    {
         self.start_prometheus_endpoint().await?;
         Ok(self)
     }
 
     /// Starts the prometheus endpoint.
-    pub async fn start_prometheus_endpoint(&self) -> eyre::Result<()> {
+    pub async fn start_prometheus_endpoint(&self) -> eyre::Result<()>
+    where
+        T::ChainSpec: EthereumHardforks,
+    {
         // ensure recorder runs upkeep periodically
         install_prometheus_recorder().spawn_upkeep();
 
         let listen_addr = self.node_config().metrics.prometheus;
         if let Some(addr) = listen_addr {
+            let prune_config = self.prune_config();
+            let pruning_mode =
+                PruneConfigKind::from_config(&prune_config, self.chain_spec().as_ref()).as_str();
+            // On existing databases, stored settings are authoritative and already cached by the
+            // provider factory. Fresh databases do not have storage metadata until genesis is
+            // initialized, so report the configured setting during this pre-genesis startup window.
+            let storage_settings =
+                if self.provider_factory().get_stage_checkpoint(StageId::Headers)?.is_some() {
+                    self.provider_factory().cached_storage_settings()
+                } else {
+                    self.node_config().storage_settings()
+                };
             let config = MetricServerConfig::new(
                 addr,
                 VersionInfo {
@@ -649,6 +668,12 @@ where
                 metrics_hooks(self.provider_factory()),
                 self.data_dir().pprof_dumps(),
             )
+            .with_storage_settings_info(StorageSettingsInfo {
+                storage_v2: storage_settings.storage_v2,
+                pruning_mode,
+                prune_config: serde_json::to_string(&prune_config)
+                    .expect("serializing PruneConfig should not fail"),
+            })
             .with_push_gateway(
                 self.node_config().metrics.push_gateway_url.clone(),
                 self.node_config().metrics.push_gateway_interval,
