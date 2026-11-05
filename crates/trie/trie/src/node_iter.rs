@@ -402,10 +402,12 @@ mod tests {
             slot(&[0x10, 0xa1]),
         ];
         let inserted = slot(&[0x10, 0x00]);
-        let old_state =
-            HashedPostState::default().with_accounts([(address, Some(account()))]).with_storages([
-                (address, HashedStorage::from_iter(old_slots.map(|slot| (slot, U256::from(1))))),
-            ]);
+        let old_state = HashedPostState::default()
+            .with_accounts([(address, Some(account()))])
+            .with_storages([(
+                address,
+                HashedStorage::from_iter(false, old_slots.map(|slot| (slot, U256::from(1)))),
+            )]);
         let old_sorted = old_state.clone().into_sorted();
         let (old_root, old_updates) = StateRoot::new(
             NoopTrieCursorFactory::default(),
@@ -420,12 +422,14 @@ mod tests {
             .with_storages([(
                 address,
                 HashedStorage::from_iter(
+                    false,
                     old_slots.into_iter().chain([inserted]).map(|slot| (slot, U256::from(1))),
                 ),
             )]);
-        let delta = HashedPostState::default()
-            .with_accounts([(address, Some(account()))])
-            .with_storages([(address, HashedStorage::from_iter([(inserted, U256::from(1))]))]);
+        let delta =
+            HashedPostState::default().with_accounts([(address, Some(account()))]).with_storages([
+                (address, HashedStorage::from_iter(false, [(inserted, U256::from(1))])),
+            ]);
         let new_sorted = new_state.clone().into_sorted();
         let rebuilt_root = StateRoot::new(
             NoopTrieCursorFactory::default(),
